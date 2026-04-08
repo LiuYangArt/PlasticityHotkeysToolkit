@@ -4,6 +4,12 @@
 
 这套工具用于给 Plasticity 的 Stable / Beta 版本注入自定义快捷键。
 
+快捷键配置现在只维护一份：
+
+- `hotkeys\custom-shortcuts.json`
+
+调试模式不会再单独维护第二份 JSON，只是临时打开调试面板。
+
 ## 日常启动
 
 - Beta：`start-plasticity-beta.cmd`

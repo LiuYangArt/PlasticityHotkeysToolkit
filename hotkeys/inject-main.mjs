@@ -7,6 +7,7 @@ function parseArgs(argv) {
     port: null,
     root: process.cwd(),
     configPath: null,
+    debugUi: false,
     installRoot: null,
     launchStrategy: null,
   };
@@ -26,6 +27,10 @@ function parseArgs(argv) {
     if (arg === "--config-path") {
       args.configPath = path.resolve(argv[i + 1]);
       i += 1;
+      continue;
+    }
+    if (arg === "--debug-ui") {
+      args.debugUi = true;
       continue;
     }
     if (arg === "--install-root") {
@@ -149,7 +154,7 @@ async function waitForRendererStatus(send, timeoutMs = 15000) {
 }
 
 async function main() {
-  const { port, root, configPath, installRoot, launchStrategy } = parseArgs(process.argv.slice(2));
+  const { port, root, configPath, debugUi, installRoot, launchStrategy } = parseArgs(process.argv.slice(2));
   const resolvedConfigPath = configPath || path.join(root, "hotkeys", "custom-shortcuts.json");
   const rendererPath = path.join(root, "hotkeys", "renderer-hotkeys.js");
 
@@ -159,6 +164,14 @@ async function main() {
   ]);
 
   const config = JSON.parse(configText);
+  if (debugUi) {
+    config.__meta = {
+      debugOverlay: true,
+      debugToast: true,
+      debugToastMs: 4200,
+      debugMaxEntries: 10,
+    };
+  }
   const rendererPayload = `window.__PLASTICITY_HOTKEYS_CONFIG = ${JSON.stringify(config)};\n${rendererText}`;
   const payloadBase64 = Buffer.from(rendererPayload, "utf8").toString("base64");
 
@@ -238,6 +251,7 @@ async function main() {
           launchStrategy,
           toolkitRoot: root,
           configPath: resolvedConfigPath,
+          debugUi,
           inspectorPort: port,
         },
       },

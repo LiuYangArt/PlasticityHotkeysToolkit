@@ -159,8 +159,7 @@ function Wait-ForInspector {
 
 $spec = Get-ChannelSpec -Name $Channel
 $toolkitRoot = Split-Path -Parent $PSScriptRoot
-$configFileName = if ($DebugUi) { "custom-shortcuts.debug.json" } else { "custom-shortcuts.json" }
-$configPath = Join-Path $toolkitRoot ("hotkeys\\{0}" -f $configFileName)
+$configPath = Join-Path $toolkitRoot "hotkeys\\custom-shortcuts.json"
 
 $candidateRoots = @()
 if ($InstallRoot) {
@@ -197,4 +196,17 @@ if (-not $inspectProcess) {
     Wait-ForInspector -Port $InspectPort
 }
 
-& node (Join-Path $toolkitRoot "hotkeys\\inject-main.mjs") --port $InspectPort --root $toolkitRoot --config-path $configPath --install-root $resolvedInstallRoot --launch-strategy ("{0}:{1}" -f $spec.Channel, $exeInfo.Strategy)
+$nodeArgs = @(
+    (Join-Path $toolkitRoot "hotkeys\\inject-main.mjs"),
+    "--port", "$InspectPort",
+    "--root", $toolkitRoot,
+    "--config-path", $configPath,
+    "--install-root", $resolvedInstallRoot,
+    "--launch-strategy", ("{0}:{1}" -f $spec.Channel, $exeInfo.Strategy)
+)
+
+if ($DebugUi) {
+    $nodeArgs += "--debug-ui"
+}
+
+& node @nodeArgs

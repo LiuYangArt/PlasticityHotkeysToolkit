@@ -4,12 +4,14 @@
 
 这份说明用于以后继续给 Plasticity 增加新的自定义快捷键。
 
-## 日常模式和调试模式的区别
+## 配置文件
 
-- 日常模式配置文件：`hotkeys\custom-shortcuts.json`
-- 调试模式配置文件：`hotkeys\custom-shortcuts.debug.json`
+现在只保留一个配置文件：
 
-通常先在调试模式里改和测试，确认没问题后，再同步到日常模式配置。
+- `hotkeys\custom-shortcuts.json`
+
+日常模式和调试模式都读取这同一个 JSON。  
+调试模式只是额外打开调试面板和 toast，不再维护第二份配置。
 
 ## 新增一个已有命令的快捷键
 
@@ -32,7 +34,7 @@
 
 如果配置文件里还没有这个命令，需要同时改两处：
 
-1. `hotkeys\custom-shortcuts.json` 或 `hotkeys\custom-shortcuts.debug.json`
+1. `hotkeys\custom-shortcuts.json`
 2. `hotkeys\renderer-hotkeys.js`
 
 具体做法：
@@ -65,7 +67,7 @@ function runCustomCommand(commandId) {
    - `tools\debug-hotkeys-status-beta.cmd`
    - `tools\debug-hotkeys-status-stable.cmd`
 
-如果调试模式确认无误，再把变更同步到日常配置文件。
+如果调试模式确认无误，日常模式会直接使用同一份配置，不需要再做同步。
 
 ## 如果改完后要重新安装到固定目录
 
