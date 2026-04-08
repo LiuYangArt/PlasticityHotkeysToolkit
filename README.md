@@ -7,6 +7,7 @@
 当前已经包含的自定义快捷键：
 
 - `Enter`：把当前选中的 Outliner folder 设为 Active Folder
+- `Alt+4`：把当前选中 object 所在的上级 group/folder 设为 Active Folder
 - `Ctrl+Alt+Shift+X`：执行 `Delete empty groups`
 - `Shift+B`：在 `Move` 工具面板打开时，把 `Pivot` 切到 `Bbox`
 

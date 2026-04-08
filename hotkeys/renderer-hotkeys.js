@@ -1,5 +1,5 @@
 (function installPlasticityHotkeys() {
-  const VERSION = "0.4.3";
+  const VERSION = "0.4.5";
   const DEBUG_MAX_LOGS = 12;
   const DEBUG_TOAST_MS = 2600;
   const existing = window.__plasticityHotkeys;
@@ -405,6 +405,72 @@
     }) || null;
   }
 
+  function summarizeSelectionCandidate(candidate) {
+    if (!candidate) {
+      return null;
+    }
+
+    return {
+      rowText: candidate.rowText,
+      score: candidate.score,
+      reasons: candidate.reasons,
+    };
+  }
+
+  function getSelectionSnapshot(selection, limit = 4) {
+    const candidates = selection?.candidates || [];
+    return candidates.slice(0, limit).map(summarizeSelectionCandidate);
+  }
+
+  function buildMissingSelectionResult(selection) {
+    return {
+      ok: false,
+      reason: "no-selected-outliner-row",
+      selectionSnapshot: getSelectionSnapshot(selection),
+    };
+  }
+
+  function getLeadingVisualCandidates(row) {
+    if (!(row instanceof Element)) {
+      return [];
+    }
+
+    const label = findRowLabelElement(row);
+    const labelRect = getVisibleRect(label);
+    const rowRect = getVisibleRect(row);
+    if (!rowRect) {
+      return [];
+    }
+
+    return Array.from(row.querySelectorAll("svg"))
+      .map((svg) => {
+        const wrapper = svg.closest("span, div, button") || svg;
+        const rect = getVisibleRect(wrapper);
+        if (!rect) {
+          return null;
+        }
+
+        if (labelRect && rect.left >= labelRect.left) {
+          return null;
+        }
+
+        if (rect.left > rowRect.left + rowRect.width * 0.45) {
+          return null;
+        }
+
+        return {
+          target: wrapper,
+          rect,
+          summary: summarizeElement(wrapper),
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function getLeadingVisualCount(row) {
+    return getLeadingVisualCandidates(row).length;
+  }
+
   function getVisibleRect(element) {
     if (!(element instanceof Element)) {
       return null;
@@ -421,33 +487,7 @@
       return { target: null, reason: "no-row" };
     }
 
-    const label = findRowLabelElement(row);
-    const labelRect = getVisibleRect(label);
-    const rowRect = getVisibleRect(row);
-    const svgNodes = Array.from(row.querySelectorAll("svg"));
-    const iconCandidates = [];
-
-    for (const svg of svgNodes) {
-      const wrapper = svg.closest("span, div, button") || svg;
-      const rect = getVisibleRect(wrapper);
-      if (!rect || !rowRect) {
-        continue;
-      }
-
-      if (labelRect && rect.left >= labelRect.left) {
-        continue;
-      }
-
-      if (rect.left > rowRect.left + rowRect.width * 0.45) {
-        continue;
-      }
-
-      iconCandidates.push({
-        target: wrapper,
-        rect,
-        summary: summarizeElement(wrapper),
-      });
-    }
+    const iconCandidates = getLeadingVisualCandidates(row);
 
     if (iconCandidates.length > 0) {
       iconCandidates.sort((a, b) => b.rect.left - a.rect.left);
@@ -467,6 +507,142 @@
       target: clickable || row,
       reason: clickable ? "clickable-row-fallback" : "row-fallback",
       candidates: [summarizeElement(clickable || row)],
+    };
+  }
+
+  function estimateOutlinerRowIndent(row) {
+    if (!(row instanceof Element)) {
+      return null;
+    }
+
+    const labelRect = getVisibleRect(findRowLabelElement(row));
+    if (labelRect) {
+      return labelRect.left;
+    }
+
+    const visuals = getLeadingVisualCandidates(row).sort((a, b) => a.rect.left - b.rect.left);
+    if (visuals.length > 0) {
+      return visuals[0].rect.left;
+    }
+
+    const rowRect = getVisibleRect(row);
+    return rowRect ? rowRect.left : null;
+  }
+
+  function isLikelyContainerOutlinerRow(row) {
+    if (!(row instanceof Element)) {
+      return false;
+    }
+
+    return getLeadingVisualCount(row) >= 2;
+  }
+
+  function findParentContainerOutlinerRow(row) {
+    if (!(row instanceof Element)) {
+      return {
+        row: null,
+        reason: "no-row",
+        candidates: [],
+      };
+    }
+
+    if (isLikelyContainerOutlinerRow(row)) {
+      return {
+        row,
+        reason: "selected-row-is-container",
+        candidates: [
+          {
+            rowText: getRowText(row),
+            indent: estimateOutlinerRowIndent(row),
+            visuals: getLeadingVisualCount(row),
+          },
+        ],
+      };
+    }
+
+    const rows = getOutlinerRows();
+    const index = rows.indexOf(row);
+    if (index <= 0) {
+      return {
+        row: null,
+        reason: "row-not-in-outliner",
+        candidates: [],
+      };
+    }
+
+    const selectedIndent = estimateOutlinerRowIndent(row);
+    const candidates = [];
+    let fallback = null;
+
+    for (let i = index - 1; i >= 0; i -= 1) {
+      const candidate = rows[i];
+      const candidateIndent = estimateOutlinerRowIndent(candidate);
+      if (!Number.isFinite(candidateIndent) || !Number.isFinite(selectedIndent)) {
+        continue;
+      }
+
+      if (candidateIndent >= selectedIndent - 4) {
+        continue;
+      }
+
+      const candidateInfo = {
+        row: candidate,
+        rowText: getRowText(candidate),
+        indent: candidateIndent,
+        visuals: getLeadingVisualCount(candidate),
+        isContainer: isLikelyContainerOutlinerRow(candidate),
+      };
+      candidates.push(candidateInfo);
+
+      if (!fallback) {
+        fallback = candidateInfo;
+      }
+
+      if (candidateInfo.isContainer) {
+        return {
+          row: candidate,
+          reason: "nearest-shallower-container-row",
+          candidates: candidates.slice(0, 6).map(({ row: ignored, ...rest }) => rest),
+        };
+      }
+    }
+
+    if (fallback) {
+      return {
+        row: fallback.row,
+        reason: "nearest-shallower-row-fallback",
+        candidates: candidates.slice(0, 6).map(({ row: ignored, ...rest }) => rest),
+      };
+    }
+
+    return {
+      row: null,
+      reason: "parent-container-not-found",
+      candidates,
+    };
+  }
+
+  function activateOutlinerRow(row, detail = {}) {
+    if (!(row instanceof Element)) {
+      return {
+        ok: false,
+        reason: "no-target-row",
+      };
+    }
+
+    const rowText = getRowText(row);
+    const targetInfo = findFolderIconTarget(row);
+    const dispatchResult = dispatchSyntheticDoubleClick(targetInfo.target);
+
+    state.lastResolvedRowText = rowText;
+    state.lastTargetSummary = dispatchResult.targetSummary || summarizeElement(targetInfo.target);
+
+    return {
+      ...dispatchResult,
+      rowText,
+      targetReason: targetInfo.reason,
+      targetCandidates: targetInfo.candidates || [],
+      ...detail,
     };
   }
 
@@ -1033,51 +1209,46 @@
   function activateSelectedOutlinerItem() {
     const selection = findSelectedOutlinerRow();
     if (!selection.row) {
+      return buildMissingSelectionResult(selection);
+    }
+
+    return activateOutlinerRow(selection.row, {
+      chosenRow: summarizeSelectionCandidate(selection.chosen),
+    });
+  }
+
+  function activateParentFolderOfSelectedOutlinerItem() {
+    const selection = findSelectedOutlinerRow();
+    if (!selection.row) {
+      return buildMissingSelectionResult(selection);
+    }
+
+    const selectedRowText = getRowText(selection.row);
+    const parentRow = findParentContainerOutlinerRow(selection.row);
+    if (!parentRow.row) {
+      state.lastResolvedRowText = selectedRowText;
+      state.lastTargetSummary = null;
       return {
         ok: false,
-        reason: "no-selected-outliner-row",
-        selectionSnapshot: selection.candidates.slice(0, 4).map((candidate) => ({
-          rowText: candidate.rowText,
-          score: candidate.score,
-          reasons: candidate.reasons,
-        })),
+        reason: parentRow.reason,
+        rowText: selectedRowText,
+        chosenRow: summarizeSelectionCandidate(selection.chosen),
+        parentCandidates: parentRow.candidates || [],
       };
     }
 
-    const rowText = getRowText(selection.row);
-    const targetInfo = findFolderIconTarget(selection.row);
-    const dispatchResult = dispatchSyntheticDoubleClick(targetInfo.target);
-
-    state.lastResolvedRowText = rowText;
-    state.lastTargetSummary = dispatchResult.targetSummary || summarizeElement(targetInfo.target);
-
-    return {
-      ...dispatchResult,
-      rowText,
-      targetReason: targetInfo.reason,
-      targetCandidates: targetInfo.candidates || [],
-      chosenRow: selection.chosen
-        ? {
-            rowText: selection.chosen.rowText,
-            score: selection.chosen.score,
-            reasons: selection.chosen.reasons,
-          }
-        : null,
-    };
+    return activateOutlinerRow(parentRow.row, {
+      sourceRowText: selectedRowText,
+      parentReason: parentRow.reason,
+      parentCandidates: parentRow.candidates || [],
+      chosenRow: summarizeSelectionCandidate(selection.chosen),
+    });
   }
 
   async function deleteEmptyGroupsFromOutlinerMenu() {
     const selection = findSelectedOutlinerRow();
     if (!selection.row) {
-      return {
-        ok: false,
-        reason: "no-selected-outliner-row",
-        selectionSnapshot: selection.candidates.slice(0, 4).map((candidate) => ({
-          rowText: candidate.rowText,
-          score: candidate.score,
-          reasons: candidate.reasons,
-        })),
-      };
+      return buildMissingSelectionResult(selection);
     }
 
     const rowText = getRowText(selection.row);
@@ -1138,6 +1309,8 @@
       case "custom:outliner:activate-selected":
       case "custom:assets:set-active-folder":
         return activateSelectedOutlinerItem();
+      case "custom:outliner:activate-parent-folder":
+        return activateParentFolderOfSelectedOutlinerItem();
       case "custom:outliner:delete-empty-groups":
         return deleteEmptyGroupsFromOutlinerMenu();
       case "custom:move:set-pivot-bbox":
@@ -1322,6 +1495,7 @@
     simulateChord,
     toggleDebugUi,
     activateSelectedOutlinerItem,
+    activateParentFolderOfSelectedOutlinerItem,
     deleteEmptyGroupsFromOutlinerMenu,
     setMovePivotBbox,
   };
