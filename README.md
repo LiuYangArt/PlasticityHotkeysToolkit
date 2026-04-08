@@ -10,6 +10,11 @@
 
 调试模式不会再单独维护第二份 JSON，只是临时打开调试面板。
 
+当前已经包含的自定义快捷键：
+
+- `Enter`：把当前选中的 Outliner folder 设为 Active Folder
+- `Ctrl+Alt+Shift+X`：执行 `Delete empty groups`
+
 ## 日常启动
 
 - Beta：`start-plasticity-beta.cmd`

@@ -1,5 +1,5 @@
 (function installPlasticityHotkeys() {
-  const VERSION = "0.3.1";
+  const VERSION = "0.4.2";
   const DEBUG_MAX_LOGS = 12;
   const DEBUG_TOAST_MS = 2600;
   const existing = window.__plasticityHotkeys;
@@ -519,6 +519,224 @@
     };
   }
 
+  function dispatchSyntheticClick(target) {
+    if (!(target instanceof Element)) {
+      return {
+        ok: false,
+        reason: "no-target",
+        targetSummary: null,
+      };
+    }
+
+    const rect = target.getBoundingClientRect();
+    const clientX = rect.left + Math.max(2, Math.min(rect.width - 2, rect.width / 2));
+    const clientY = rect.top + Math.max(2, Math.min(rect.height - 2, rect.height / 2));
+    const base = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      clientX,
+      clientY,
+      button: 0,
+      buttons: 1,
+      detail: 1,
+    };
+
+    const sequence = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"];
+    for (const type of sequence) {
+      const event = type.startsWith("pointer")
+        ? new PointerEvent(type, { ...base, pointerId: 1, pointerType: "mouse", isPrimary: true })
+        : new MouseEvent(type, base);
+      target.dispatchEvent(event);
+    }
+
+    return {
+      ok: true,
+      reason: "dispatched-click",
+      targetSummary: summarizeElement(target),
+      point: { x: Math.round(clientX), y: Math.round(clientY) },
+    };
+  }
+
+  function isVisibleElement(element) {
+    const rect = getVisibleRect(element);
+    if (!rect) {
+      return false;
+    }
+
+    const style = window.getComputedStyle(element);
+    return style.visibility !== "hidden" && style.display !== "none";
+  }
+
+  function hasThreeCircleIcon(button) {
+    const circles = button.querySelectorAll("svg circle");
+    return circles.length === 3;
+  }
+
+  function getVisibleButtons(root) {
+    if (!(root instanceof Element)) {
+      return [];
+    }
+    return Array.from(root.querySelectorAll("button")).filter(isVisibleElement);
+  }
+
+  function findOutlinerSectionRoot(outlinerRoot) {
+    if (!(outlinerRoot instanceof Element)) {
+      return null;
+    }
+
+    return outlinerRoot.parentElement instanceof Element
+      ? outlinerRoot.parentElement
+      : null;
+  }
+
+  function findOutlinerToolbarRow(sectionRoot, outlinerRoot) {
+    if (!(sectionRoot instanceof Element) || !(outlinerRoot instanceof Element)) {
+      return null;
+    }
+
+    const outlinerRect = outlinerRoot.getBoundingClientRect();
+    const children = Array.from(sectionRoot.children).filter((child) => child instanceof HTMLElement && isVisibleElement(child));
+
+    const candidates = children
+      .filter((child) => child !== outlinerRoot)
+      .map((child) => ({
+        element: child,
+        rect: child.getBoundingClientRect(),
+        buttonCount: getVisibleButtons(child).length,
+      }))
+      .filter((item) => item.buttonCount >= 2)
+      .filter((item) => item.rect.bottom <= outlinerRect.top + 8)
+      .filter((item) => item.rect.left <= outlinerRect.left + 16 && item.rect.right >= outlinerRect.right - 16)
+      .sort((a, b) => b.rect.bottom - a.rect.bottom);
+
+    return candidates[0]?.element || null;
+  }
+
+  function findToolbarTrailingButtonGroup(toolbarRow) {
+    if (!(toolbarRow instanceof Element)) {
+      return null;
+    }
+
+    const groups = Array.from(toolbarRow.children)
+      .filter((child) => child instanceof HTMLElement && isVisibleElement(child))
+      .map((child) => ({
+        element: child,
+        rect: child.getBoundingClientRect(),
+        buttonCount: getVisibleButtons(child).length,
+      }))
+      .filter((item) => item.buttonCount > 0)
+      .sort((a, b) => b.rect.right - a.rect.right);
+
+    return groups[0]?.element || null;
+  }
+
+  function findOutlinerOverflowButton() {
+    const outlinerRoot = document.querySelector(".plasticity-outliner");
+    if (!outlinerRoot) {
+      return {
+        button: null,
+        reason: "outliner-not-found",
+      };
+    }
+
+    const sectionRoot = findOutlinerSectionRoot(outlinerRoot);
+    const toolbarRow = findOutlinerToolbarRow(sectionRoot, outlinerRoot);
+    const trailingGroup = findToolbarTrailingButtonGroup(toolbarRow);
+    const trailingButtons = getVisibleButtons(trailingGroup).sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+    const rowButtons = getVisibleButtons(toolbarRow).sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+    const trailingThreeDot = trailingButtons.find(hasThreeCircleIcon);
+
+    if (trailingThreeDot) {
+      return {
+        button: trailingThreeDot,
+        reason: "toolbar-trailing-three-circle-button",
+        candidates: trailingButtons.map(summarizeElement),
+      };
+    }
+
+    if (trailingButtons.length >= 2) {
+      return {
+        button: trailingButtons[0],
+        reason: "toolbar-trailing-left-button",
+        candidates: trailingButtons.map(summarizeElement),
+      };
+    }
+
+    if (rowButtons.length >= 3) {
+      return {
+        button: rowButtons[1],
+        reason: "toolbar-middle-button-fallback",
+        candidates: rowButtons.map(summarizeElement),
+      };
+    }
+
+    const sectionThreeDot = getVisibleButtons(sectionRoot).find(hasThreeCircleIcon);
+    if (sectionThreeDot) {
+      return {
+        button: sectionThreeDot,
+        reason: "section-three-circle-button",
+        candidates: getVisibleButtons(sectionRoot).map(summarizeElement).slice(0, 6),
+      };
+    }
+
+    const sectionButtons = getVisibleButtons(sectionRoot);
+    return {
+      button: null,
+      reason: "overflow-button-not-found",
+      candidates: sectionButtons.slice(0, 8).map(summarizeElement),
+    };
+  }
+
+  function getContextMenuItems() {
+    return Array.from(document.querySelectorAll(".z-context-menu [role='menuitem'], .z-context-menu button, .z-context-menu .cursor-pointer"))
+      .filter(isVisibleElement);
+  }
+
+  function findMenuItemByText(labelText) {
+    const normalizedLabel = trimText(labelText, 200).toLowerCase();
+    const items = getContextMenuItems();
+
+    const match = items.find((item) => trimText(item.textContent, 200).toLowerCase() === normalizedLabel);
+    if (match) {
+      return {
+        item: match,
+        reason: "exact-text-match",
+        itemSummary: summarizeElement(match),
+      };
+    }
+
+    const fuzzy = items.find((item) => trimText(item.textContent, 200).toLowerCase().includes(normalizedLabel));
+    if (fuzzy) {
+      return {
+        item: fuzzy,
+        reason: "includes-text-match",
+        itemSummary: summarizeElement(fuzzy),
+      };
+    }
+
+    return {
+      item: null,
+      reason: "menu-item-not-found",
+      candidates: items.slice(0, 12).map((item) => trimText(item.textContent, 120)),
+    };
+  }
+
+  async function waitForMenuItemByText(labelText, timeoutMs = 1200) {
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      const result = findMenuItemByText(labelText);
+      if (result.item) {
+        return result;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 40));
+    }
+
+    return findMenuItemByText(labelText);
+  }
+
   function selectorMatchesDetailed(selector, event) {
     const normalized = normalizeSelector(selector);
     const eventTarget = event.target instanceof Element ? event.target : null;
@@ -591,11 +809,80 @@
     };
   }
 
-  function runCustomCommand(commandId) {
+  async function deleteEmptyGroupsFromOutlinerMenu() {
+    const selection = findSelectedOutlinerRow();
+    if (!selection.row) {
+      return {
+        ok: false,
+        reason: "no-selected-outliner-row",
+        selectionSnapshot: selection.candidates.slice(0, 4).map((candidate) => ({
+          rowText: candidate.rowText,
+          score: candidate.score,
+          reasons: candidate.reasons,
+        })),
+      };
+    }
+
+    const rowText = getRowText(selection.row);
+    const overflow = findOutlinerOverflowButton();
+    if (!overflow.button) {
+      state.lastResolvedRowText = rowText;
+      state.lastTargetSummary = null;
+      return {
+        ok: false,
+        reason: overflow.reason,
+        rowText,
+        targetCandidates: overflow.candidates || [],
+      };
+    }
+
+    const openResult = dispatchSyntheticClick(overflow.button);
+    if (!openResult.ok) {
+      state.lastResolvedRowText = rowText;
+      state.lastTargetSummary = openResult.targetSummary || summarizeElement(overflow.button);
+      return {
+        ...openResult,
+        rowText,
+        targetReason: overflow.reason,
+        targetCandidates: overflow.candidates || [],
+      };
+    }
+
+    const menuItemResult = await waitForMenuItemByText("Delete empty groups");
+    if (!menuItemResult.item) {
+      state.lastResolvedRowText = rowText;
+      state.lastTargetSummary = openResult.targetSummary || summarizeElement(overflow.button);
+      return {
+        ok: false,
+        reason: menuItemResult.reason,
+        rowText,
+        menuCandidates: menuItemResult.candidates || [],
+        targetReason: overflow.reason,
+        targetCandidates: overflow.candidates || [],
+      };
+    }
+
+    const clickResult = dispatchSyntheticClick(menuItemResult.item);
+    state.lastResolvedRowText = rowText;
+    state.lastTargetSummary = clickResult.targetSummary || menuItemResult.itemSummary || summarizeElement(menuItemResult.item);
+
+    return {
+      ...clickResult,
+      rowText,
+      menuReason: menuItemResult.reason,
+      menuItemText: trimText(menuItemResult.item.textContent, 120),
+      targetReason: overflow.reason,
+      targetCandidates: overflow.candidates || [],
+    };
+  }
+
+  async function runCustomCommand(commandId) {
     switch (commandId) {
       case "custom:outliner:activate-selected":
       case "custom:assets:set-active-folder":
         return activateSelectedOutlinerItem();
+      case "custom:outliner:delete-empty-groups":
+        return deleteEmptyGroupsFromOutlinerMenu();
       default:
         return { ok: false, reason: "unknown-command", commandId };
     }
@@ -620,7 +907,7 @@
       .filter((item) => item.commandId);
   }
 
-  function onKeyDown(event) {
+  async function onKeyDown(event) {
     const chord = normalizeChord(event);
     if (!chord) {
       return;
@@ -648,7 +935,7 @@
             : "editable-target";
         state.lastError = reason;
         state.lastEvent = { chord, skipped: reason, at: nowIso() };
-        showToast(`Enter 已捕获，但被跳过: ${reason}`, "error");
+        showToast(`${chord} 已捕获，但被跳过: ${reason}`, "error");
         pushLog("keydown-skipped", { chord, reason });
       }
       return;
@@ -678,12 +965,16 @@
         })),
         at: nowIso(),
       };
-      showToast(`Enter 已捕获，但上下文未命中: ${state.lastSelectorDecision}`, "error");
+      showToast(`${chord} 已捕获，但上下文未命中: ${state.lastSelectorDecision}`, "error");
       pushLog("selector-miss", state.lastEvent);
       return;
     }
 
-    const result = runCustomCommand(matched.commandId);
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+
+    const result = await runCustomCommand(matched.commandId);
     state.lastCommand = matched.commandId;
     state.lastResult = result;
     state.lastError = result && result.ok ? null : result?.reason || "unknown-error";
@@ -702,14 +993,11 @@
     });
 
     if (result && result.ok) {
-      showToast(`Enter -> ${matched.commandId} -> ${result.rowText || "-"}`, "success");
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
+      showToast(`${chord} -> ${matched.commandId} -> ${result.rowText || "-"}`, "success");
       return;
     }
 
-    showToast(`Enter 已命中 ${matched.commandId}，但失败: ${result?.reason || "unknown-error"}`, "error");
+    showToast(`${chord} 已命中 ${matched.commandId}，但失败: ${result?.reason || "unknown-error"}`, "error");
   }
 
   function reloadConfig(nextConfig) {
@@ -741,6 +1029,20 @@
     return status();
   }
 
+  function simulateChord(key, modifiers = {}) {
+    const event = new KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: Boolean(modifiers.ctrlKey),
+      altKey: Boolean(modifiers.altKey),
+      shiftKey: Boolean(modifiers.shiftKey),
+      metaKey: Boolean(modifiers.metaKey),
+    });
+    document.dispatchEvent(event);
+    return status();
+  }
+
   function toggleDebugUi(force) {
     state.debugVisible = typeof force === "boolean" ? force : !state.debugVisible;
     renderDebugUi();
@@ -758,8 +1060,10 @@
     reloadConfig,
     status,
     simulateEnter,
+    simulateChord,
     toggleDebugUi,
     activateSelectedOutlinerItem,
+    deleteEmptyGroupsFromOutlinerMenu,
   };
 
   renderDebugUi();

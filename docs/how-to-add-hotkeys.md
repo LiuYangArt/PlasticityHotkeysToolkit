@@ -23,7 +23,8 @@
 {
   "body:not([gizmo]) plasticity-outliner": {
     "enter": "custom:outliner:activate-selected",
-    "shift-enter": "custom:outliner:activate-selected"
+    "shift-enter": "custom:outliner:activate-selected",
+    "ctrl-alt-shift-x": "custom:outliner:delete-empty-groups"
   }
 }
 ```
@@ -50,6 +51,8 @@ function runCustomCommand(commandId) {
   switch (commandId) {
     case "custom:outliner:activate-selected":
       return activateSelectedOutlinerItem();
+    case "custom:outliner:delete-empty-groups":
+      return deleteEmptyGroupsFromOutlinerMenu();
     case "custom:example:new-action":
       return runExampleAction();
     default:
@@ -57,6 +60,21 @@ function runCustomCommand(commandId) {
   }
 }
 ```
+
+## 顶部三点菜单类动作怎么加
+
+如果某个动作不是行级按钮，也不是右键菜单，而是在 Outliner 顶部三点按钮里：
+
+1. 先在 `custom-shortcuts.json` 里绑定一个命令名
+2. 在 `renderer-hotkeys.js` 里实现这个命令
+3. 实现时一般按这个顺序：
+   - 找到当前选中的 Outliner 项
+   - 找到顶部三点按钮
+   - 打开菜单
+   - 按菜单文字找到目标项
+   - 再触发点击
+
+现在 `Delete empty groups` 就是这类实现，可直接作为参考。
 
 ## 如何测试
 
