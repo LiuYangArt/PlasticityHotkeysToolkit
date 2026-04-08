@@ -581,6 +581,10 @@
     return Array.from(root.querySelectorAll("button")).filter(isVisibleElement);
   }
 
+  function sortButtonsLeftToRight(buttons) {
+    return [...buttons].sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+  }
+
   function findOutlinerSectionRoot(outlinerRoot) {
     if (!(outlinerRoot instanceof Element)) {
       return null;
@@ -644,8 +648,9 @@
     const sectionRoot = findOutlinerSectionRoot(outlinerRoot);
     const toolbarRow = findOutlinerToolbarRow(sectionRoot, outlinerRoot);
     const trailingGroup = findToolbarTrailingButtonGroup(toolbarRow);
-    const trailingButtons = getVisibleButtons(trailingGroup).sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
-    const rowButtons = getVisibleButtons(toolbarRow).sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+    const trailingButtons = sortButtonsLeftToRight(getVisibleButtons(trailingGroup));
+    const rowButtons = sortButtonsLeftToRight(getVisibleButtons(toolbarRow));
+    const sectionButtons = getVisibleButtons(sectionRoot);
     const trailingThreeDot = trailingButtons.find(hasThreeCircleIcon);
 
     if (trailingThreeDot) {
@@ -677,11 +682,10 @@
       return {
         button: sectionThreeDot,
         reason: "section-three-circle-button",
-        candidates: getVisibleButtons(sectionRoot).map(summarizeElement).slice(0, 6),
+        candidates: sectionButtons.map(summarizeElement).slice(0, 6),
       };
     }
 
-    const sectionButtons = getVisibleButtons(sectionRoot);
     return {
       button: null,
       reason: "overflow-button-not-found",
