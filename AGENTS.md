@@ -11,6 +11,10 @@
 3. `hotkeys/renderer-hotkeys.js` 在页面里监听键盘事件、识别 DOM 上下文并执行自定义命令
 4. `hotkeys/custom-shortcuts.json` 是唯一快捷键配置源
 
+### plasiticy 安装路径
+%LOCALAPPDATA%\Plasticity
+%LOCALAPPDATA%\plasticity-beta
+
 ## 工作原则
 
 - 所有讨论、说明、文档内容使用中文。
