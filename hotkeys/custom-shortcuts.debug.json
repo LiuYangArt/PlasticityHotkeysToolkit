@@ -1,0 +1,11 @@
+{
+  "__meta": {
+    "debugOverlay": true,
+    "debugToast": true,
+    "debugToastMs": 4200,
+    "debugMaxEntries": 10
+  },
+  "body:not([gizmo]) plasticity-outliner": {
+    "enter": "custom:outliner:activate-selected"
+  }
+}

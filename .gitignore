@@ -1,0 +1,26 @@
+# OS files
+Thumbs.db
+Desktop.ini
+
+# Editor folders
+.idea/
+.vscode/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# PowerShell and Node diagnostics
+*.pid
+*.seed
+
+# Archive exports
+*.zip
+*.7z
+*.rar
+
+# Local-only overrides
+hotkeys/custom-shortcuts.local.json

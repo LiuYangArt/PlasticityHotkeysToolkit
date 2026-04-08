@@ -1,0 +1,5 @@
+{
+  "body:not([gizmo]) plasticity-outliner": {
+    "enter": "custom:outliner:activate-selected"
+  }
+}
