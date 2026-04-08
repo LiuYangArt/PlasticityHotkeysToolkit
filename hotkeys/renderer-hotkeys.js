@@ -1,5 +1,5 @@
 (function installPlasticityHotkeys() {
-  const VERSION = "0.4.2";
+  const VERSION = "0.4.3";
   const DEBUG_MAX_LOGS = 12;
   const DEBUG_TOAST_MS = 2600;
   const existing = window.__plasticityHotkeys;
@@ -38,6 +38,10 @@
       return normalized;
     }
     return `${normalized.slice(0, max - 1)}…`;
+  }
+
+  function normalizeLabelText(text, max = 120) {
+    return trimText(text, max).toLowerCase();
   }
 
   function getClassName(element) {
@@ -475,9 +479,7 @@
       };
     }
 
-    const rect = target.getBoundingClientRect();
-    const clientX = rect.left + Math.max(2, Math.min(rect.width - 2, rect.width / 2));
-    const clientY = rect.top + Math.max(2, Math.min(rect.height - 2, rect.height / 2));
+    const { clientX, clientY } = getSyntheticClientPoint(target);
     const base = {
       bubbles: true,
       cancelable: true,
@@ -519,6 +521,14 @@
     };
   }
 
+  function getSyntheticClientPoint(target) {
+    const rect = target.getBoundingClientRect();
+    return {
+      clientX: rect.left + Math.max(2, Math.min(rect.width - 2, rect.width / 2)),
+      clientY: rect.top + Math.max(2, Math.min(rect.height - 2, rect.height / 2)),
+    };
+  }
+
   function dispatchSyntheticClick(target) {
     if (!(target instanceof Element)) {
       return {
@@ -528,9 +538,7 @@
       };
     }
 
-    const rect = target.getBoundingClientRect();
-    const clientX = rect.left + Math.max(2, Math.min(rect.width - 2, rect.width / 2));
-    const clientY = rect.top + Math.max(2, Math.min(rect.height - 2, rect.height / 2));
+    const { clientX, clientY } = getSyntheticClientPoint(target);
     const base = {
       bubbles: true,
       cancelable: true,
@@ -559,6 +567,53 @@
     };
   }
 
+  function dispatchSyntheticHover(target) {
+    if (!(target instanceof Element)) {
+      return {
+        ok: false,
+        reason: "no-target",
+        targetSummary: null,
+      };
+    }
+
+    const { clientX, clientY } = getSyntheticClientPoint(target);
+    const base = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      clientX,
+      clientY,
+    };
+
+    const sequence = [
+      "pointerenter",
+      "pointerover",
+      "mouseenter",
+      "mouseover",
+      "pointermove",
+      "mousemove",
+    ];
+
+    for (const type of sequence) {
+      const event = type.startsWith("pointer")
+        ? new PointerEvent(type, { ...base, pointerId: 1, pointerType: "mouse", isPrimary: true })
+        : new MouseEvent(type, base);
+      target.dispatchEvent(event);
+    }
+
+    return {
+      ok: true,
+      reason: "dispatched-hover",
+      targetSummary: summarizeElement(target),
+      point: { x: Math.round(clientX), y: Math.round(clientY) },
+    };
+  }
+
+  function waitMs(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
   function isVisibleElement(element) {
     const rect = getVisibleRect(element);
     if (!rect) {
@@ -579,6 +634,18 @@
       return [];
     }
     return Array.from(root.querySelectorAll("button")).filter(isVisibleElement);
+  }
+
+  function hasClassToken(element, className) {
+    if (!(element instanceof Element)) {
+      return false;
+    }
+
+    return new RegExp(`(^|\\s)${className}(\\s|$)`).test(getClassName(element));
+  }
+
+  function isActiveToolbarButton(button) {
+    return hasClassToken(button, "bg-black-600");
   }
 
   function sortButtonsLeftToRight(buttons) {
@@ -698,25 +765,38 @@
       .filter(isVisibleElement);
   }
 
-  function findMenuItemByText(labelText) {
-    const normalizedLabel = trimText(labelText, 200).toLowerCase();
-    const items = getContextMenuItems();
-
-    const match = items.find((item) => trimText(item.textContent, 200).toLowerCase() === normalizedLabel);
-    if (match) {
+  function findTextMatch(items, getText, labelText) {
+    const normalizedLabel = normalizeLabelText(labelText, 200);
+    const exact = items.find((item) => getText(item) === normalizedLabel);
+    if (exact) {
       return {
-        item: match,
+        item: exact,
         reason: "exact-text-match",
-        itemSummary: summarizeElement(match),
       };
     }
 
-    const fuzzy = items.find((item) => trimText(item.textContent, 200).toLowerCase().includes(normalizedLabel));
+    const fuzzy = items.find((item) => getText(item).includes(normalizedLabel));
     if (fuzzy) {
       return {
         item: fuzzy,
         reason: "includes-text-match",
-        itemSummary: summarizeElement(fuzzy),
+      };
+    }
+
+    return {
+      item: null,
+      reason: "text-match-not-found",
+    };
+  }
+
+  function findMenuItemByText(labelText) {
+    const items = getContextMenuItems();
+    const match = findTextMatch(items, (item) => normalizeLabelText(item.textContent, 200), labelText);
+    if (match.item) {
+      return {
+        item: match.item,
+        reason: match.reason,
+        itemSummary: summarizeElement(match.item),
       };
     }
 
@@ -735,10 +815,183 @@
       if (result.item) {
         return result;
       }
-      await new Promise((resolve) => window.setTimeout(resolve, 40));
+      await waitMs(40);
     }
 
     return findMenuItemByText(labelText);
+  }
+
+  function findMoveDialogRoot() {
+    const dialog = document.querySelector("move-10-dialog");
+    return dialog instanceof Element && isVisibleElement(dialog) ? dialog : null;
+  }
+
+  function findToolOptionGroup(root, labelText) {
+    if (!(root instanceof Element)) {
+      return {
+        group: null,
+        reason: "no-root",
+      };
+    }
+
+    const groups = Array.from(root.querySelectorAll("div.flex.flex-col.flex-1"))
+      .filter(isVisibleElement)
+      .map((group) => {
+        const label = Array.from(group.querySelectorAll("span"))
+          .map((element) => ({
+            element,
+            text: normalizeLabelText(element.textContent, 80),
+          }))
+          .find((entry) => entry.text);
+
+        return {
+          group,
+          labelElement: label?.element || null,
+          labelText: label?.text || "",
+          buttons: getVisibleButtons(group),
+        };
+      });
+
+    const match = findTextMatch(groups, (entry) => entry.labelText, labelText);
+    if (match.item) {
+      return {
+        group: match.item.group,
+        labelElement: match.item.labelElement,
+        buttons: match.item.buttons,
+        reason: match.reason === "exact-text-match" ? "exact-label-match" : "includes-label-match",
+      };
+    }
+
+    return {
+      group: null,
+      reason: "tool-option-group-not-found",
+      candidates: groups.map((entry) => trimText(entry.labelElement?.textContent, 80)),
+    };
+  }
+
+  function getVisibleTooltipElements() {
+    return Array.from(document.querySelectorAll(".z-tooltip")).filter(isVisibleElement);
+  }
+
+  function findVisibleTooltipByText(labelText) {
+    const tooltips = getVisibleTooltipElements();
+    const match = findTextMatch(tooltips, (tooltip) => normalizeLabelText(tooltip.textContent), labelText);
+    if (match.item) {
+      return {
+        tooltip: match.item,
+        reason: match.reason === "exact-text-match" ? "exact-tooltip-match" : "includes-tooltip-match",
+      };
+    }
+
+    return {
+      tooltip: null,
+      reason: "tooltip-not-found",
+      candidates: tooltips.map((tooltip) => trimText(tooltip.textContent, 80)),
+    };
+  }
+
+  async function findToolOptionButtonByTooltip(buttons, tooltipText, hoverDelayMs = 120) {
+    for (const button of buttons) {
+      const hoverResult = dispatchSyntheticHover(button);
+      if (!hoverResult.ok) {
+        continue;
+      }
+
+      await waitMs(hoverDelayMs);
+      const tooltipResult = findVisibleTooltipByText(tooltipText);
+      if (tooltipResult.tooltip) {
+        return {
+          button,
+          reason: tooltipResult.reason,
+          tooltipSummary: summarizeElement(tooltipResult.tooltip),
+        };
+      }
+    }
+
+    const lastTooltipResult = findVisibleTooltipByText(tooltipText);
+    return {
+      button: null,
+      reason: lastTooltipResult.reason,
+      tooltipCandidates: lastTooltipResult.candidates || [],
+    };
+  }
+
+  async function setMovePivotBbox() {
+    const dialog = findMoveDialogRoot();
+    if (!dialog) {
+      return {
+        ok: false,
+        reason: "move-dialog-not-found",
+      };
+    }
+
+    const pivotGroup = findToolOptionGroup(dialog, "Pivot");
+    if (!pivotGroup.group) {
+      return {
+        ok: false,
+        reason: pivotGroup.reason,
+        groupCandidates: pivotGroup.candidates || [],
+      };
+    }
+
+    if (pivotGroup.buttons.length === 0) {
+      return {
+        ok: false,
+        reason: "pivot-buttons-not-found",
+      };
+    }
+
+    const tooltipMatch = await findToolOptionButtonByTooltip(pivotGroup.buttons, "Bbox");
+    const fallbackButton = pivotGroup.buttons.find((button) => button.getAttribute("value") === "0") || null;
+    const targetButton = tooltipMatch.button || fallbackButton || pivotGroup.buttons[0] || null;
+
+    if (!targetButton) {
+      return {
+        ok: false,
+        reason: "pivot-bbox-button-not-found",
+        tooltipCandidates: tooltipMatch.tooltipCandidates || [],
+      };
+    }
+
+    const wasActive = isActiveToolbarButton(targetButton);
+    const clickResult = wasActive ? {
+      ok: true,
+      reason: "pivot-bbox-already-active",
+      targetSummary: summarizeElement(targetButton),
+    } : dispatchSyntheticClick(targetButton);
+
+    if (!clickResult.ok) {
+      return {
+        ...clickResult,
+        tooltipReason: tooltipMatch.reason,
+      };
+    }
+
+    if (!wasActive) {
+      await waitMs(180);
+    }
+
+    const refreshedGroup = findToolOptionGroup(dialog, "Pivot");
+    const refreshedButtons = refreshedGroup.buttons || [];
+    const activeButton = refreshedButtons.find(isActiveToolbarButton) || null;
+    const activeValue = activeButton?.getAttribute("value") || null;
+    const ok = activeValue === "0";
+
+    state.lastResolvedRowText = "Move / Pivot / Bbox";
+    state.lastTargetSummary = summarizeElement(targetButton);
+
+    return {
+      ok,
+      reason: ok
+        ? (wasActive ? "pivot-bbox-already-active" : "pivot-bbox-set")
+        : "pivot-bbox-not-active-after-click",
+      targetValue: targetButton.getAttribute("value"),
+      activeValue,
+      buttonCount: refreshedButtons.length,
+      tooltipReason: tooltipMatch.reason,
+      tooltipSummary: tooltipMatch.tooltipSummary || null,
+      targetSummary: summarizeElement(targetButton),
+    };
   }
 
   function selectorMatchesDetailed(selector, event) {
@@ -887,6 +1140,8 @@
         return activateSelectedOutlinerItem();
       case "custom:outliner:delete-empty-groups":
         return deleteEmptyGroupsFromOutlinerMenu();
+      case "custom:move:set-pivot-bbox":
+        return setMovePivotBbox();
       default:
         return { ok: false, reason: "unknown-command", commandId };
     }
@@ -1068,6 +1323,7 @@
     toggleDebugUi,
     activateSelectedOutlinerItem,
     deleteEmptyGroupsFromOutlinerMenu,
+    setMovePivotBbox,
   };
 
   renderDebugUi();

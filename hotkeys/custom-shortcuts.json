@@ -2,5 +2,8 @@
   "body:not([gizmo]) plasticity-outliner": {
     "enter": "custom:outliner:activate-selected",
     "ctrl-alt-shift-x": "custom:outliner:delete-empty-groups"
+  },
+  "move-10-dialog": {
+    "shift-b": "custom:move:set-pivot-bbox"
   }
 }

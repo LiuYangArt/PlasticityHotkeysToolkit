@@ -76,6 +76,36 @@ function runCustomCommand(commandId) {
 
 现在 `Delete empty groups` 就是这类实现，可直接作为参考。
 
+## 工具参数面板里的按钮怎么加
+
+如果某个动作在 viewport 左下角的工具参数面板里，比如：
+
+- `Move`
+- `Scale`
+- `Rotate`
+
+这类动作通常不要从图标长相开始猜。
+优先按下面顺序做：
+
+1. 先确认面板有没有稳定根节点，例如这次 `Move` 用到的就是 `move-10-dialog`
+2. 在根节点里按分组标题定位，例如 `Pivot`
+3. 如果按钮 hover 后会出现 tooltip，优先按 tooltip 文本命中，例如 `Bbox`
+4. 如果按钮没有稳定文本，再找已验证过的结构信号做 fallback，例如 `value="0"`
+5. 点击后再校验激活态，不要只看 click 有没有发出去
+
+这类实现的参考命令：
+
+- `custom:move:set-pivot-bbox`
+
+这次的经验是：
+
+- `button.textContent`
+- `title`
+- `aria-label`
+
+都可能是空的。
+真正稳定的信号可能出现在 hover 后的 tooltip 或组件值属性里。
+
 ## 如何测试
 
 1. 先运行对应版本的调试入口
@@ -84,6 +114,12 @@ function runCustomCommand(commandId) {
 4. 必要时运行：
    - `tools\debug-hotkeys-status-beta.cmd`
    - `tools\debug-hotkeys-status-stable.cmd`
+
+如果是工具面板类动作，建议额外做一层真实行为验证：
+
+1. 先把目标状态切到别的选项
+2. 再触发你新增的命令
+3. 确认状态真的切回目标值
 
 如果调试模式确认无误，日常模式会直接使用同一份配置，不需要再做同步。
 
