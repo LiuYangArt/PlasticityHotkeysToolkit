@@ -39,23 +39,5 @@
   - `tools\debug-hotkeys-status-beta.cmd`
   - `tools\debug-hotkeys-status-stable.cmd`
 
-## 以后如何新增快捷键
-
-新增 hotkey 的操作说明在这里：
-
-- `docs\how-to-add-hotkeys.md`
-
-## Move / Pivot / Bbox 说明
-
-- 这个快捷键只在 `Move` 工具参数面板出现时生效
-- 当前默认绑定是 `Shift+B`
-- 命中方式不是猜图标，而是：
-  - 先识别 `move-10-dialog`
-  - 再定位 `Pivot` 分组
-  - 优先通过 hover 后出现的 tooltip `Bbox` 命中按钮
-  - 如果 tooltip 命中失败，再回退到当前已验证过的 `value="0"` 按钮
-
-相关排障记录：
-
-- `docs\postmortem-2026-04-08-move-pivot-bbox.md`
-- `docs\postmortem-2026-04-08-outliner-delete-empty-groups.md`
+# 注意
+这个项目是纯 viibe coding 的项目，我没有看 AI 写的具体代码实现。就如果你要用的话，请自己注意风险。
