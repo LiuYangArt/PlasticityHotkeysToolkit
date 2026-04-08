@@ -38,15 +38,3 @@
 新增 hotkey 的操作说明在这里：
 
 - `docs\how-to-add-hotkeys.md`
-
-## GitHub
-
-如果要上传 GitHub，就把这个文件夹本身作为仓库根目录。
-
-不要上传 Plasticity 程序安装目录里的这些内容：
-
-- `app-*`
-- `packages`
-- `Plasticity.exe`
-- `plasticity-beta.exe`
-- `Update.exe`
