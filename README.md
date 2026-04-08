@@ -1,20 +1,5 @@
 # Plasticity Hotkeys
 
-## 上传到 GitHub
-
-如果你要建 GitHub 仓库，只需要把这个文件夹本身作为仓库根目录即可：
-
-- `hotkeys-toolkit`
-- 或者 `%LOCALAPPDATA%\PlasticityHotkeysToolkit`
-
-两者内容是同一套工具。不要上传整个 Plasticity 安装目录，也不要上传这些内容：
-
-- `app-*`
-- `packages`
-- `plasticity-beta.exe`
-- `Update.exe`
-- 其他 Plasticity 自带二进制和版本目录
-
 ## 日常使用
 
 如果你只想正常使用快捷键：
