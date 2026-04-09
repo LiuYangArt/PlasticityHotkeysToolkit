@@ -6,6 +6,7 @@
 
 当前已经包含的自定义快捷键：
 
+- `Ctrl+Alt+I`：对 3D viewport 当前选中 object 的上级 group/folder 执行 `Create Instance`
 - `Enter`：把当前选中的 Outliner folder 设为 Active Folder
 - `Alt+Shift+4`：把当前选中 object 所在的上级 group/folder 设为 Active Folder
 - `Ctrl+Alt+Shift+X`：执行 `Delete empty groups`
@@ -13,6 +14,7 @@
 
 说明：
 
+- `Ctrl+Alt+I` 会先把 outliner 切到当前选中 object 的父 group/folder，再触发 Plasticity 自己的 `Ctrl+I / Create Instance`
 - `Shift+B` 只在 `Move / Scale / Rotate` 工具参数面板出现时生效
 
 ## 安装

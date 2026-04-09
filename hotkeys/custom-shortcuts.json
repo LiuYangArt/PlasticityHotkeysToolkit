@@ -1,4 +1,7 @@
 {
+  "body:not([gizmo])": {
+    "ctrl-alt-i": "custom:outliner:create-instance-from-parent"
+  },
   "body:not([gizmo]) plasticity-outliner": {
     "enter": "custom:outliner:activate-selected",
     "alt-shift-4": "custom:outliner:activate-parent-folder",

@@ -1,5 +1,5 @@
 (function installPlasticityHotkeys() {
-  const VERSION = "0.4.12";
+  const VERSION = "0.4.17";
   const DEBUG_MAX_LOGS = 12;
   const DEBUG_TOAST_MS = 2600;
   const TRANSFORM_DIALOG_SELECTORS = [
@@ -468,6 +468,60 @@
     };
   }
 
+  function resolveSelectedParentContainerOutlinerRow() {
+    const selection = findSelectedOutlinerRow();
+    if (!selection.row) {
+      return {
+        ok: false,
+        reason: "no-selected-outliner-row",
+        selection,
+        selectedRowText: null,
+        parentInfo: {
+          row: null,
+          reason: "no-selected-outliner-row",
+          candidates: [],
+        },
+      };
+    }
+
+    const selectedRowText = getRowText(selection.row);
+    const parentInfo = findParentContainerOutlinerRow(selection.row);
+    if (!parentInfo.row) {
+      return {
+        ok: false,
+        reason: parentInfo.reason,
+        selection,
+        selectedRowText,
+        parentInfo,
+      };
+    }
+
+    return {
+      ok: true,
+      selection,
+      selectedRowText,
+      parentInfo,
+      parentRow: parentInfo.row,
+    };
+  }
+
+  function buildParentContainerCommandDetail(resolved) {
+    return {
+      sourceRowText: resolved?.selectedRowText || null,
+      parentReason: resolved?.parentInfo?.reason || null,
+      parentCandidates: resolved?.parentInfo?.candidates || [],
+      chosenRow: summarizeSelectionCandidate(resolved?.selection?.chosen),
+    };
+  }
+
+  function buildTargetMatch(target, reason, candidates = []) {
+    return {
+      target,
+      reason,
+      candidates: candidates.filter(Boolean),
+    };
+  }
+
   function getLeadingVisualCandidates(row) {
     if (!(row instanceof Element)) {
       return [];
@@ -536,16 +590,24 @@
       };
     }
 
-    const clickable = Array.from(row.querySelectorAll("*")).find((element) => {
-      const className = getClassName(element);
-      return className.includes("cursor-pointer") && className.includes("items-center");
-    });
+    const clickable = findOutlinerClickableElement(row);
 
     return {
       target: clickable || row,
       reason: clickable ? "clickable-row-fallback" : "row-fallback",
       candidates: [summarizeElement(clickable || row)],
     };
+  }
+
+  function findOutlinerClickableElement(root) {
+    if (!(root instanceof Element)) {
+      return null;
+    }
+
+    return Array.from(root.querySelectorAll("*")).find((element) => {
+      const className = getClassName(element);
+      return className.includes("cursor-pointer") && className.includes("items-center");
+    }) || null;
   }
 
   function estimateOutlinerRowIndent(row) {
@@ -684,6 +746,144 @@
     };
   }
 
+  function findOutlinerRowActionTarget(row) {
+    if (!(row instanceof Element)) {
+      return buildTargetMatch(null, "no-row");
+    }
+
+    const label = findRowLabelElement(row);
+    if (label && isVisibleElement(label)) {
+      const clickableAncestor = label.closest("button, [role='button'], div, span");
+      if (
+        clickableAncestor instanceof Element &&
+        row.contains(clickableAncestor) &&
+        (hasClassToken(clickableAncestor, "cursor-pointer") || hasClassToken(clickableAncestor, "items-center"))
+      ) {
+        return buildTargetMatch(
+          clickableAncestor,
+          "label-clickable-ancestor",
+          [summarizeElement(clickableAncestor), summarizeElement(label)],
+        );
+      }
+
+      return buildTargetMatch(label, "row-label", [summarizeElement(label)]);
+    }
+
+    const clickable = findOutlinerClickableElement(row);
+    if (clickable) {
+      return buildTargetMatch(clickable, "row-clickable-fallback", [summarizeElement(clickable)]);
+    }
+
+    const rowText = normalizeLabelText(getRowText(row), 120);
+    const textMatch = Array.from(row.querySelectorAll("span, div, button"))
+      .filter(isVisibleElement)
+      .find((element) => normalizeLabelText(element.textContent, 120) === rowText);
+
+    return buildTargetMatch(
+      textMatch || row,
+      textMatch ? "row-text-match" : "row-fallback",
+      [summarizeElement(textMatch || row)],
+    );
+  }
+
+  async function waitForCommittedOutlinerSelection(targetRow, previousRow = null, timeoutMs = 900) {
+    const deadline = Date.now() + timeoutMs;
+    const targetRowText = getRowText(targetRow);
+    const comparePreviousRow = previousRow instanceof Element && previousRow !== targetRow
+      ? previousRow
+      : null;
+    let lastSnapshot = null;
+
+    while (Date.now() < deadline) {
+      const targetAlpha = getBackgroundAlpha(targetRow);
+      const previousAlpha = comparePreviousRow
+        ? getBackgroundAlpha(comparePreviousRow)
+        : 0;
+      const selection = findSelectedOutlinerRow();
+      const chosenRowText = selection?.chosen?.rowText || null;
+      const committed = targetAlpha >= 0.1 &&
+        (!comparePreviousRow || previousAlpha <= 0.02) &&
+        chosenRowText === targetRowText;
+
+      lastSnapshot = {
+        targetAlpha,
+        previousAlpha,
+        chosenRow: summarizeSelectionCandidate(selection?.chosen),
+        selectionSnapshot: getSelectionSnapshot(selection),
+      };
+
+      if (committed) {
+        return {
+          ok: true,
+          reason: "outliner-selection-committed",
+          ...lastSnapshot,
+        };
+      }
+
+      await waitMs(40);
+    }
+
+    return {
+      ok: false,
+      reason: "outliner-selection-not-committed",
+      ...(lastSnapshot || {
+        targetAlpha: getBackgroundAlpha(targetRow),
+        previousAlpha: comparePreviousRow
+          ? getBackgroundAlpha(comparePreviousRow)
+          : 0,
+        chosenRow: null,
+        selectionSnapshot: [],
+      }),
+    };
+  }
+
+  async function focusOutlinerRow(row, options = {}) {
+    if (!(row instanceof Element)) {
+      return {
+        ok: false,
+        reason: "no-target-row",
+      };
+    }
+
+    const {
+      previousRow = null,
+      ...detail
+    } = options;
+    const rowText = getRowText(row);
+    const targetInfo = findOutlinerRowActionTarget(row);
+    const dispatchResult = dispatchSyntheticClick(targetInfo.target);
+
+    if (targetInfo.target instanceof HTMLElement && typeof targetInfo.target.focus === "function") {
+      try {
+        targetInfo.target.focus({ preventScroll: true });
+      } catch (_error) {
+        try {
+          targetInfo.target.focus();
+        } catch (_ignored) {
+          // Ignore focus failures. The click is the primary interaction signal.
+        }
+      }
+    }
+
+    state.lastResolvedRowText = rowText;
+    state.lastTargetSummary = dispatchResult.targetSummary || summarizeElement(targetInfo.target);
+    const commitResult = await waitForCommittedOutlinerSelection(row, previousRow);
+
+    return {
+      ...dispatchResult,
+      rowText,
+      focusConfirmed: commitResult.ok,
+      focusCommitReason: commitResult.reason,
+      focusTargetAlpha: commitResult.targetAlpha,
+      focusPreviousAlpha: commitResult.previousAlpha,
+      focusChosenRow: commitResult.chosenRow,
+      focusSelectionSnapshot: commitResult.selectionSnapshot || [],
+      targetReason: targetInfo.reason,
+      targetCandidates: targetInfo.candidates || [],
+      ...detail,
+    };
+  }
+
   function dispatchSyntheticDoubleClick(target) {
     if (!(target instanceof Element)) {
       return {
@@ -732,6 +932,59 @@
       reason: "dispatched-dblclick",
       targetSummary: summarizeElement(target),
       point: { x: Math.round(clientX), y: Math.round(clientY) },
+    };
+  }
+
+  function dispatchSyntheticKeyboardShortcut(target, detail) {
+    if (!(target instanceof Element)) {
+      return {
+        ok: false,
+        reason: "no-target",
+        targetSummary: null,
+      };
+    }
+
+    const key = typeof detail?.key === "string" ? detail.key : "";
+    const code = typeof detail?.code === "string" ? detail.code : "";
+    if (!key || !code) {
+      return {
+        ok: false,
+        reason: "missing-key-detail",
+        targetSummary: summarizeElement(target),
+      };
+    }
+
+    const modifiers = {
+      ctrlKey: Boolean(detail?.ctrlKey),
+      altKey: Boolean(detail?.altKey),
+      shiftKey: Boolean(detail?.shiftKey),
+      metaKey: Boolean(detail?.metaKey),
+    };
+    const eventBase = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      key,
+      code,
+      ...modifiers,
+    };
+
+    const keydownEvent = new KeyboardEvent("keydown", eventBase);
+    const keydownAccepted = target.dispatchEvent(keydownEvent);
+    const keyupEvent = new KeyboardEvent("keyup", eventBase);
+    target.dispatchEvent(keyupEvent);
+    const handled = !keydownAccepted || keydownEvent.defaultPrevented;
+
+    return {
+      ok: handled,
+      reason: handled ? "shortcut-dispatched-handled" : "shortcut-dispatched-unhandled",
+      shortcut: normalizeChord({
+        key,
+        code,
+        ...modifiers,
+      }),
+      handled,
+      targetSummary: summarizeElement(target),
     };
   }
 
@@ -1473,6 +1726,78 @@
     };
   }
 
+  async function createInstanceFromParentContainer() {
+    const resolved = resolveSelectedParentContainerOutlinerRow();
+    if (!resolved.ok) {
+      state.lastResolvedRowText = resolved.selectedRowText;
+      state.lastTargetSummary = null;
+      return {
+        ok: false,
+        reason: resolved.reason,
+        rowText: resolved.selectedRowText,
+        chosenRow: summarizeSelectionCandidate(resolved.selection?.chosen),
+        selectionSnapshot: getSelectionSnapshot(resolved.selection),
+        parentCandidates: resolved.parentInfo?.candidates || [],
+      };
+    }
+
+    const parentDetail = buildParentContainerCommandDetail(resolved);
+    const parentRowText = getRowText(resolved.parentRow);
+    const focusResult = await focusOutlinerRow(resolved.parentRow, {
+      previousRow: resolved.selection.row,
+      ...parentDetail,
+    });
+    if (!focusResult.ok) {
+      return focusResult;
+    }
+    if (!focusResult.focusConfirmed) {
+      state.lastResolvedRowText = parentRowText;
+      state.lastTargetSummary = focusResult.targetSummary || summarizeElement(resolved.parentRow);
+      return {
+        ok: false,
+        reason: "parent-row-focus-unconfirmed",
+        rowText: parentRowText,
+        focusReason: focusResult.targetReason,
+        focusCommitReason: focusResult.focusCommitReason,
+        focusTargetAlpha: focusResult.focusTargetAlpha,
+        focusPreviousAlpha: focusResult.focusPreviousAlpha,
+        focusChosenRow: focusResult.focusChosenRow,
+        focusSelectionSnapshot: focusResult.focusSelectionSnapshot || [],
+        focusCandidates: focusResult.targetCandidates || [],
+        ...parentDetail,
+      };
+    }
+
+    await waitMs(80);
+
+    const targetInfo = findOutlinerRowActionTarget(resolved.parentRow);
+    const shortcutTarget = targetInfo.target || resolved.parentRow;
+    const clickResult = dispatchSyntheticKeyboardShortcut(shortcutTarget, {
+      key: "i",
+      code: "KeyI",
+      ctrlKey: true,
+    });
+    state.lastResolvedRowText = parentRowText;
+    state.lastTargetSummary = clickResult.targetSummary || focusResult.targetSummary || summarizeElement(shortcutTarget);
+
+    return {
+      ...clickResult,
+      rowText: parentRowText,
+      sourceRowText: resolved.selectedRowText,
+      focusReason: focusResult.targetReason,
+      focusConfirmed: focusResult.focusConfirmed,
+      focusCommitReason: focusResult.focusCommitReason,
+      focusTargetAlpha: focusResult.focusTargetAlpha,
+      focusPreviousAlpha: focusResult.focusPreviousAlpha,
+      focusChosenRow: focusResult.focusChosenRow,
+      focusSelectionSnapshot: focusResult.focusSelectionSnapshot || [],
+      focusCandidates: focusResult.targetCandidates || [],
+      shortcutTargetReason: targetInfo.reason,
+      shortcutTargetCandidates: targetInfo.candidates || [],
+      ...parentDetail,
+    };
+  }
+
   async function runCustomCommand(commandId) {
     switch (commandId) {
       case "custom:outliner:activate-selected":
@@ -1480,6 +1805,8 @@
         return activateSelectedOutlinerItem();
       case "custom:outliner:activate-parent-folder":
         return activateParentFolderOfSelectedOutlinerItem();
+      case "custom:outliner:create-instance-from-parent":
+        return createInstanceFromParentContainer();
       case "custom:outliner:delete-empty-groups":
         return deleteEmptyGroupsFromOutlinerMenu();
       case "custom:transform:set-pivot-bbox":
@@ -1666,6 +1993,7 @@
     toggleDebugUi,
     activateSelectedOutlinerItem,
     activateParentFolderOfSelectedOutlinerItem,
+    createInstanceFromParentContainer,
     deleteEmptyGroupsFromOutlinerMenu,
     setTransformPivotBbox,
     setMovePivotBbox,
