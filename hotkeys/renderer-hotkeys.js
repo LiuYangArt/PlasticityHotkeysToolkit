@@ -1,7 +1,23 @@
 (function installPlasticityHotkeys() {
-  const VERSION = "0.4.5";
+  const VERSION = "0.4.10";
   const DEBUG_MAX_LOGS = 12;
   const DEBUG_TOAST_MS = 2600;
+  const TRANSFORM_DIALOG_SELECTORS = [
+    "move-9-dialog",
+    "move-10-dialog",
+    "move-19-dialog",
+    "scale-15-dialog",
+    "scale-16-dialog",
+    "scale-22-dialog",
+    "rotate-12-dialog",
+    "rotate-13-dialog",
+    "rotate-21-dialog",
+  ];
+  const TRANSFORM_TOOL_LABELS = {
+    move: "Move",
+    scale: "Scale",
+    rotate: "Rotate",
+  };
   const existing = window.__plasticityHotkeys;
   const runtimeConfig = window.__PLASTICITY_HOTKEYS_CONFIG || {};
 
@@ -786,6 +802,66 @@
     };
   }
 
+  function dispatchSyntheticUnhover(target, nextTarget = document.body) {
+    if (!(target instanceof Element)) {
+      return {
+        ok: false,
+        reason: "no-target",
+        targetSummary: null,
+      };
+    }
+
+    const fallbackTarget = nextTarget instanceof Element ? nextTarget : document.body;
+    const { clientX, clientY } = getSyntheticClientPoint(target);
+    const nextPoint = fallbackTarget instanceof Element && isVisibleElement(fallbackTarget)
+      ? getSyntheticClientPoint(fallbackTarget)
+      : { clientX: Math.max(1, clientX - 24), clientY: Math.max(1, clientY - 24) };
+
+    const outBase = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      clientX,
+      clientY,
+      relatedTarget: fallbackTarget,
+    };
+
+    const moveBase = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      clientX: nextPoint.clientX,
+      clientY: nextPoint.clientY,
+    };
+
+    const outSequence = ["pointerout", "mouseout", "pointerleave", "mouseleave"];
+    for (const type of outSequence) {
+      const event = type.startsWith("pointer")
+        ? new PointerEvent(type, { ...outBase, pointerId: 1, pointerType: "mouse", isPrimary: true })
+        : new MouseEvent(type, outBase);
+      target.dispatchEvent(event);
+    }
+
+    if (fallbackTarget instanceof Element) {
+      const moveSequence = ["pointermove", "mousemove"];
+      for (const type of moveSequence) {
+        const event = type.startsWith("pointer")
+          ? new PointerEvent(type, { ...moveBase, pointerId: 1, pointerType: "mouse", isPrimary: true })
+          : new MouseEvent(type, moveBase);
+        fallbackTarget.dispatchEvent(event);
+      }
+    }
+
+    return {
+      ok: true,
+      reason: "dispatched-unhover",
+      targetSummary: summarizeElement(target),
+      point: { x: Math.round(nextPoint.clientX), y: Math.round(nextPoint.clientY) },
+    };
+  }
+
   function waitMs(ms) {
     return new Promise((resolve) => window.setTimeout(resolve, ms));
   }
@@ -997,9 +1073,51 @@
     return findMenuItemByText(labelText);
   }
 
-  function findMoveDialogRoot() {
-    const dialog = document.querySelector("move-10-dialog");
-    return dialog instanceof Element && isVisibleElement(dialog) ? dialog : null;
+  function getTransformToolLabel(dialogSelector) {
+    const prefix = String(dialogSelector || "").split("-")[0];
+    return TRANSFORM_TOOL_LABELS[prefix] || "Transform";
+  }
+
+  function findActiveTransformDialog() {
+    let fallbackDialog = null;
+
+    for (const selector of TRANSFORM_DIALOG_SELECTORS) {
+      const dialog = document.querySelector(selector);
+      if (!(dialog instanceof Element) || !isVisibleElement(dialog)) {
+        continue;
+      }
+
+      const candidate = {
+        dialog,
+        selector,
+        toolLabel: getTransformToolLabel(selector),
+      };
+
+      if (!fallbackDialog) {
+        fallbackDialog = candidate;
+      }
+
+      if (findToolOptionGroup(dialog, "Pivot").group) {
+        return {
+          ...candidate,
+          reason: "transform-dialog-with-pivot",
+        };
+      }
+    }
+
+    if (fallbackDialog) {
+      return {
+        ...fallbackDialog,
+        reason: "transform-dialog-visible-without-pivot",
+      };
+    }
+
+    return {
+      dialog: null,
+      selector: null,
+      toolLabel: "Transform",
+      reason: "transform-dialog-not-found",
+    };
   }
 
   function findToolOptionGroup(root, labelText) {
@@ -1066,6 +1184,23 @@
     };
   }
 
+  function dismissVisibleTooltipByText(labelText) {
+    const tooltipMatch = findVisibleTooltipByText(labelText);
+    if (!tooltipMatch.tooltip) {
+      return {
+        ok: false,
+        reason: tooltipMatch.reason,
+      };
+    }
+
+    tooltipMatch.tooltip.remove();
+    return {
+      ok: true,
+      reason: "tooltip-removed",
+      tooltipSummary: summarizeElement(tooltipMatch.tooltip),
+    };
+  }
+
   async function findToolOptionButtonByTooltip(buttons, tooltipText, hoverDelayMs = 120) {
     for (const button of buttons) {
       const hoverResult = dispatchSyntheticHover(button);
@@ -1092,20 +1227,22 @@
     };
   }
 
-  async function setMovePivotBbox() {
-    const dialog = findMoveDialogRoot();
-    if (!dialog) {
+  async function setTransformPivotBbox() {
+    const activeTransform = findActiveTransformDialog();
+    if (!activeTransform.dialog) {
       return {
         ok: false,
-        reason: "move-dialog-not-found",
+        reason: activeTransform.reason,
+        selectors: TRANSFORM_DIALOG_SELECTORS,
       };
     }
 
-    const pivotGroup = findToolOptionGroup(dialog, "Pivot");
+    const pivotGroup = findToolOptionGroup(activeTransform.dialog, "Pivot");
     if (!pivotGroup.group) {
       return {
         ok: false,
         reason: pivotGroup.reason,
+        dialogSelector: activeTransform.selector,
         groupCandidates: pivotGroup.candidates || [],
       };
     }
@@ -1143,17 +1280,21 @@
       };
     }
 
+    dispatchSyntheticUnhover(targetButton);
+    await waitMs(40);
+    dismissVisibleTooltipByText("Bbox");
+
     if (!wasActive) {
       await waitMs(180);
     }
 
-    const refreshedGroup = findToolOptionGroup(dialog, "Pivot");
+    const refreshedGroup = findToolOptionGroup(activeTransform.dialog, "Pivot");
     const refreshedButtons = refreshedGroup.buttons || [];
     const activeButton = refreshedButtons.find(isActiveToolbarButton) || null;
     const activeValue = activeButton?.getAttribute("value") || null;
     const ok = activeValue === "0";
 
-    state.lastResolvedRowText = "Move / Pivot / Bbox";
+    state.lastResolvedRowText = `${activeTransform.toolLabel} / Pivot / Bbox`;
     state.lastTargetSummary = summarizeElement(targetButton);
 
     return {
@@ -1164,10 +1305,16 @@
       targetValue: targetButton.getAttribute("value"),
       activeValue,
       buttonCount: refreshedButtons.length,
+      dialogSelector: activeTransform.selector,
+      toolLabel: activeTransform.toolLabel,
       tooltipReason: tooltipMatch.reason,
       tooltipSummary: tooltipMatch.tooltipSummary || null,
       targetSummary: summarizeElement(targetButton),
     };
+  }
+
+  async function setMovePivotBbox() {
+    return setTransformPivotBbox();
   }
 
   function selectorMatchesDetailed(selector, event) {
@@ -1313,8 +1460,9 @@
         return activateParentFolderOfSelectedOutlinerItem();
       case "custom:outliner:delete-empty-groups":
         return deleteEmptyGroupsFromOutlinerMenu();
+      case "custom:transform:set-pivot-bbox":
       case "custom:move:set-pivot-bbox":
-        return setMovePivotBbox();
+        return setTransformPivotBbox();
       default:
         return { ok: false, reason: "unknown-command", commandId };
     }
@@ -1497,6 +1645,7 @@
     activateSelectedOutlinerItem,
     activateParentFolderOfSelectedOutlinerItem,
     deleteEmptyGroupsFromOutlinerMenu,
+    setTransformPivotBbox,
     setMovePivotBbox,
   };
 

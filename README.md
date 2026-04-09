@@ -9,11 +9,11 @@
 - `Enter`：把当前选中的 Outliner folder 设为 Active Folder
 - `Alt+Shift+4`：把当前选中 object 所在的上级 group/folder 设为 Active Folder
 - `Ctrl+Alt+Shift+X`：执行 `Delete empty groups`
-- `Shift+B`：在 `Move` 工具面板打开时，把 `Pivot` 切到 `Bbox`
+- `Shift+B`：在 `Move / Scale / Rotate` 工具面板打开时，把 `Pivot` 切到 `Bbox`
 
 说明：
 
-- `Shift+B` 只在 `Move` 工具参数面板出现时生效
+- `Shift+B` 只在 `Move / Scale / Rotate` 工具参数面板出现时生效
 
 ## 安装
 <img width="744" height="630" alt="image" src="https://github.com/user-attachments/assets/9b1aec38-12cc-447e-8ee7-fa7023a8b377" />

@@ -93,9 +93,11 @@ function runCustomCommand(commandId) {
 4. 如果按钮没有稳定文本，再找已验证过的结构信号做 fallback，例如 `value="0"`
 5. 点击后再校验激活态，不要只看 click 有没有发出去
 
+如果后续发现 `Move / Scale / Rotate` 这类工具共享同一套参数结构，优先抽成一个通用命令，不要复制三份几乎一样的实现。
+
 这类实现的参考命令：
 
-- `custom:move:set-pivot-bbox`
+- `custom:transform:set-pivot-bbox`
 
 这次的经验是：
 

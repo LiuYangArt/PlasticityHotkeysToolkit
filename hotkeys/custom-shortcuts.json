@@ -4,7 +4,7 @@
     "alt-shift-4": "custom:outliner:activate-parent-folder",
     "ctrl-alt-shift-x": "custom:outliner:delete-empty-groups"
   },
-  "move-10-dialog": {
-    "shift-b": "custom:move:set-pivot-bbox"
+  "move-9-dialog, move-10-dialog, move-19-dialog, scale-15-dialog, scale-16-dialog, scale-22-dialog, rotate-12-dialog, rotate-13-dialog, rotate-21-dialog": {
+    "shift-b": "custom:transform:set-pivot-bbox"
   }
 }
