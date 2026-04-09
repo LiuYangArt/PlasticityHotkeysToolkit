@@ -1,7 +1,7 @@
 {
   "body:not([gizmo]) plasticity-outliner": {
     "enter": "custom:outliner:activate-selected",
-    "alt-4": "custom:outliner:activate-parent-folder",
+    "alt-shift-4": "custom:outliner:activate-parent-folder",
     "ctrl-alt-shift-x": "custom:outliner:delete-empty-groups"
   },
   "move-10-dialog": {
