@@ -1,5 +1,5 @@
 (function installPlasticityHotkeys() {
-  const VERSION = "0.4.10";
+  const VERSION = "0.4.12";
   const DEBUG_MAX_LOGS = 12;
   const DEBUG_TOAST_MS = 2600;
   const TRANSFORM_DIALOG_SELECTORS = [
@@ -204,6 +204,24 @@
     return role === "textbox" || role === "searchbox";
   }
 
+  function normalizeCodeKey(code) {
+    if (typeof code !== "string" || !code) {
+      return null;
+    }
+
+    const digitMatch = code.match(/^Digit([0-9])$/);
+    if (digitMatch) {
+      return digitMatch[1];
+    }
+
+    const numpadMatch = code.match(/^Numpad([0-9])$/);
+    if (numpadMatch) {
+      return numpadMatch[1];
+    }
+
+    return null;
+  }
+
   function normalizeChord(event) {
     const parts = [];
     if (event.ctrlKey) parts.push("ctrl");
@@ -211,42 +229,46 @@
     if (event.altKey) parts.push("alt");
 
     const rawKey = event.key || "";
-    let key = rawKey;
+    let key = normalizeCodeKey(event.code);
 
-    switch (rawKey) {
-      case " ":
-        key = "space";
-        break;
-      case "Escape":
-        key = "escape";
-        break;
-      case "ArrowUp":
-        key = "up";
-        break;
-      case "ArrowDown":
-        key = "down";
-        break;
-      case "ArrowLeft":
-        key = "left";
-        break;
-      case "ArrowRight":
-        key = "right";
-        break;
-      case "Enter":
-        key = "enter";
-        break;
-      case "Tab":
-        key = "tab";
-        break;
-      case "Backspace":
-        key = "backspace";
-        break;
-      case "Delete":
-        key = "delete";
-        break;
-      default:
-        key = rawKey.length === 1 ? rawKey.toLowerCase() : rawKey.toLowerCase();
-        break;
+    if (!key) {
+      key = rawKey;
+
+      switch (rawKey) {
+        case " ":
+          key = "space";
+          break;
+        case "Escape":
+          key = "escape";
+          break;
+        case "ArrowUp":
+          key = "up";
+          break;
+        case "ArrowDown":
+          key = "down";
+          break;
+        case "ArrowLeft":
+          key = "left";
+          break;
+        case "ArrowRight":
+          key = "right";
+          break;
+        case "Enter":
+          key = "enter";
+          break;
+        case "Tab":
+          key = "tab";
+          break;
+        case "Backspace":
+          key = "backspace";
+          break;
+        case "Delete":
+          key = "delete";
+          break;
+        default:
+          key = rawKey.toLowerCase();
+          break;
+      }
     }
 
     if (key && !["shift", "control", "alt", "meta"].includes(key)) {
