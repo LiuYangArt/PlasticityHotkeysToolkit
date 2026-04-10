@@ -4,7 +4,7 @@
 
 这套工具用于给windows平台下的 Plasticity 注入官方没有暴露的自定义快捷键。
 
-当前已经包含的自定义快捷键：
+当前添加的可自定义快捷键功能：
 
 - `Ctrl+Alt+I`：对 3D viewport 当前选中 object 的上级 group/folder 执行 `Create Instance`
 - `Enter`：把当前选中的 Outliner folder 设为 Active Folder
@@ -12,10 +12,7 @@
 - `Ctrl+Alt+Shift+X`：执行 `Delete empty groups`
 - `Shift+B`：在 `Move / Scale / Rotate` 工具面板打开时，把 `Pivot` 切到 `Bbox`
 
-说明：
-
-- `Ctrl+Alt+I` 会先把 outliner 切到当前选中 object 的父 group/folder，再触发 Plasticity 自己的 `Ctrl+I / Create Instance`
-- `Shift+B` 只在 `Move / Scale / Rotate` 工具参数面板出现时生效
+修改 hotkeys\custom-shortcuts.json 自定义这些功能的快捷键
 
 ## 安装
 <img width="744" height="630" alt="image" src="https://github.com/user-attachments/assets/9b1aec38-12cc-447e-8ee7-fa7023a8b377" />
