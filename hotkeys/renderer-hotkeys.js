@@ -1,5 +1,5 @@
 (function installPlasticityHotkeys() {
-  const VERSION = "0.4.17";
+  const VERSION = "0.4.18";
   const DEBUG_MAX_LOGS = 12;
   const DEBUG_TOAST_MS = 2600;
   const TRANSFORM_DIALOG_SELECTORS = [
@@ -1668,12 +1668,7 @@
   }
 
   async function deleteEmptyGroupsFromOutlinerMenu() {
-    const selection = findSelectedOutlinerRow();
-    if (!selection.row) {
-      return buildMissingSelectionResult(selection);
-    }
-
-    const rowText = getRowText(selection.row);
+    const rowText = "Outliner";
     const overflow = findOutlinerOverflowButton();
     if (!overflow.button) {
       state.lastResolvedRowText = rowText;
