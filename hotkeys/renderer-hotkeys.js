@@ -1,5 +1,5 @@
 (function installPlasticityHotkeys() {
-  const VERSION = "0.4.18";
+  const VERSION = "0.4.21";
   const DEBUG_MAX_LOGS = 12;
   const DEBUG_TOAST_MS = 2600;
   const TRANSFORM_DIALOG_SELECTORS = [
@@ -884,6 +884,29 @@
     };
   }
 
+  function getSyntheticButtons(type, eventInit) {
+    if (type === "pointerdown" || type === "mousedown") {
+      return 1;
+    }
+    if (type === "pointerup" || type === "mouseup" || type === "click" || type === "dblclick") {
+      return 0;
+    }
+    return eventInit?.buttons;
+  }
+
+  function createSyntheticEvent(type, eventInit) {
+    const isPointerEvent = type.startsWith("pointer");
+    const withButtons = { ...eventInit, buttons: getSyntheticButtons(type, eventInit) };
+    const init = isPointerEvent
+      ? { ...withButtons, pointerId: 1, pointerType: "mouse", isPrimary: true }
+      : withButtons;
+    return isPointerEvent ? new PointerEvent(type, init) : new MouseEvent(type, init);
+  }
+
+  function dispatchSyntheticMouseEvent(target, type, eventInit) {
+    target.dispatchEvent(createSyntheticEvent(type, eventInit));
+  }
+
   function dispatchSyntheticDoubleClick(target) {
     if (!(target instanceof Element)) {
       return {
@@ -920,11 +943,7 @@
     ];
 
     for (const [type, detail] of sequence) {
-      const eventInit = { ...base, detail };
-      const event = type.startsWith("pointer")
-        ? new PointerEvent(type, { ...eventInit, pointerId: 1, pointerType: "mouse", isPrimary: true })
-        : new MouseEvent(type, eventInit);
-      target.dispatchEvent(event);
+      dispatchSyntheticMouseEvent(target, type, { ...base, detail });
     }
 
     return {
@@ -1020,10 +1039,7 @@
 
     const sequence = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"];
     for (const type of sequence) {
-      const event = type.startsWith("pointer")
-        ? new PointerEvent(type, { ...base, pointerId: 1, pointerType: "mouse", isPrimary: true })
-        : new MouseEvent(type, base);
-      target.dispatchEvent(event);
+      dispatchSyntheticMouseEvent(target, type, base);
     }
 
     return {
@@ -1063,10 +1079,7 @@
     ];
 
     for (const type of sequence) {
-      const event = type.startsWith("pointer")
-        ? new PointerEvent(type, { ...base, pointerId: 1, pointerType: "mouse", isPrimary: true })
-        : new MouseEvent(type, base);
-      target.dispatchEvent(event);
+      dispatchSyntheticMouseEvent(target, type, base);
     }
 
     return {
@@ -1113,19 +1126,13 @@
 
     const outSequence = ["pointerout", "mouseout", "pointerleave", "mouseleave"];
     for (const type of outSequence) {
-      const event = type.startsWith("pointer")
-        ? new PointerEvent(type, { ...outBase, pointerId: 1, pointerType: "mouse", isPrimary: true })
-        : new MouseEvent(type, outBase);
-      target.dispatchEvent(event);
+      dispatchSyntheticMouseEvent(target, type, outBase);
     }
 
     if (fallbackTarget instanceof Element) {
       const moveSequence = ["pointermove", "mousemove"];
       for (const type of moveSequence) {
-        const event = type.startsWith("pointer")
-          ? new PointerEvent(type, { ...moveBase, pointerId: 1, pointerType: "mouse", isPrimary: true })
-          : new MouseEvent(type, moveBase);
-        fallbackTarget.dispatchEvent(event);
+        dispatchSyntheticMouseEvent(fallbackTarget, type, moveBase);
       }
     }
 
@@ -1476,6 +1483,48 @@
     };
   }
 
+  function dispatchSyntheticMouseReset(target = document.body) {
+    const resetTarget = target instanceof Element ? target : document.body;
+    if (!(resetTarget instanceof Element)) {
+      return {
+        ok: false,
+        reason: "reset-target-not-found",
+      };
+    }
+
+    const { clientX, clientY } = isVisibleElement(resetTarget)
+      ? getSyntheticClientPoint(resetTarget)
+      : { clientX: 1, clientY: 1 };
+    const base = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      clientX,
+      clientY,
+      button: 0,
+      buttons: 0,
+    };
+
+    for (const type of ["pointerup", "mouseup"]) {
+      dispatchSyntheticMouseEvent(resetTarget, type, base);
+    }
+
+    return {
+      ok: true,
+      reason: "mouse-reset-dispatched",
+      targetSummary: summarizeElement(resetTarget),
+    };
+  }
+
+  function cleanupSyntheticInteractionState(target = document.body) {
+    return {
+      unhover: target instanceof Element ? dispatchSyntheticUnhover(target) : null,
+      mouseReset: dispatchSyntheticMouseReset(document.body),
+      bboxTooltip: dismissVisibleTooltipByText("Bbox"),
+    };
+  }
+
   async function findToolOptionButtonByTooltip(buttons, tooltipText, hoverDelayMs = 120) {
     for (const button of buttons) {
       const hoverResult = dispatchSyntheticHover(button);
@@ -1555,9 +1604,8 @@
       };
     }
 
-    dispatchSyntheticUnhover(targetButton);
+    const cleanupResult = cleanupSyntheticInteractionState(targetButton);
     await waitMs(40);
-    dismissVisibleTooltipByText("Bbox");
 
     if (!wasActive) {
       await waitMs(180);
@@ -1584,6 +1632,7 @@
       toolLabel: activeTransform.toolLabel,
       tooltipReason: tooltipMatch.reason,
       tooltipSummary: tooltipMatch.tooltipSummary || null,
+      cleanupResult,
       targetSummary: summarizeElement(targetButton),
     };
   }
@@ -1708,6 +1757,7 @@
     }
 
     const clickResult = dispatchSyntheticClick(menuItemResult.item);
+    const cleanupResult = cleanupSyntheticInteractionState(menuItemResult.item);
     state.lastResolvedRowText = rowText;
     state.lastTargetSummary = clickResult.targetSummary || menuItemResult.itemSummary || summarizeElement(menuItemResult.item);
 
@@ -1716,6 +1766,7 @@
       rowText,
       menuReason: menuItemResult.reason,
       menuItemText: trimText(menuItemResult.item.textContent, 120),
+      cleanupResult,
       targetReason: overflow.reason,
       targetCandidates: overflow.candidates || [],
     };
